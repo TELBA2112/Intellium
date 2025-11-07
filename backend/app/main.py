@@ -29,6 +29,13 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+@app.get("/", tags=["root"])
+async def root():
+    return {
+        "message": "✅ Intellium Backend Running Successfully",
+        "health": "/health",
+        "docs": "/docs",
+    }
 
 # Setup CORS
 app.add_middleware(
