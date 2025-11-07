@@ -1,0 +1,120 @@
+# TLS Certificate (Let's Encrypt with cert-manager)
+# Make sure cert-manager is installed: kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    # Replace with your email
+    email: admin@intellium.example.com
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+
+---
+# TLS Certificate for domain
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: intellium-tls
+  namespace: intellium
+spec:
+  secretName: intellium-tls-secret
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: intellium.example.com
+  dnsNames:
+  - intellium.example.com
+  - api.intellium.example.com
+  - admin.intellium.example.com
+
+---
+# Ingress with TLS
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: intellium-ingress
+  namespace: intellium
+  annotations:
+    # NGINX Ingress Controller
+    kubernetes.io/ingress.class: nginx
+    
+    # TLS configuration
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    
+    # Security headers
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+    
+    # CORS configuration
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://intellium.example.com,https://admin.intellium.example.com"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    
+    # Request size
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    
+    # Timeouts
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    
+    # Buffering
+    nginx.ingress.kubernetes.io/proxy-buffering: "on"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "8k"
+    
+spec:
+  tls:
+  - hosts:
+    - intellium.example.com
+    - api.intellium.example.com
+    - admin.intellium.example.com
+    secretName: intellium-tls-secret
+  
+  rules:
+  # Backend API
+  - host: api.intellium.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8000
+  
+  # Admin panel (if served from backend)
+  - host: admin.intellium.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8000
+  
+  # Main domain redirect to API docs
+  - host: intellium.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8000

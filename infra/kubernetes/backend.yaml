@@ -1,0 +1,217 @@
+# Backend API Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: intellium
+  labels:
+    app: backend
+    component: api
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      initContainers:
+      # Wait for database to be ready
+      - name: wait-for-db
+        image: busybox:1.35
+        command:
+        - sh
+        - -c
+        - |
+          until nc -z postgres-service 5432; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          echo "PostgreSQL is ready!"
+      
+      # Run database migrations
+      - name: migrate
+        image: intellium/backend:latest
+        command: ["alembic", "upgrade", "head"]
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/$(DATABASE_NAME)"
+        - name: DATABASE_USER
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: DATABASE_USER
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: DATABASE_PASSWORD
+        - name: DATABASE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: intellium-config
+              key: DATABASE_HOST
+        - name: DATABASE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: intellium-config
+              key: DATABASE_PORT
+        - name: DATABASE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: intellium-config
+              key: DATABASE_NAME
+      
+      containers:
+      - name: backend
+        image: intellium/backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        # Database connection
+        - name: DATABASE_USER
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: DATABASE_USER
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: DATABASE_PASSWORD
+        - name: DATABASE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: intellium-config
+              key: DATABASE_HOST
+        - name: DATABASE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: intellium-config
+              key: DATABASE_PORT
+        - name: DATABASE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: intellium-config
+              key: DATABASE_NAME
+        - name: DATABASE_URL
+          value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/$(DATABASE_NAME)"
+        
+        # Redis connection
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: intellium-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: intellium-config
+              key: REDIS_PORT
+        - name: REDIS_URL
+          value: "redis://$(REDIS_HOST):$(REDIS_PORT)/0"
+        
+        # Secrets
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: SECRET_KEY
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: MINIO_ACCESS_KEY
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: MINIO_SECRET_KEY
+        - name: STRIPE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: STRIPE_SECRET_KEY
+        - name: STRIPE_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: STRIPE_WEBHOOK_SECRET
+        
+        # ConfigMap values
+        envFrom:
+        - configMapRef:
+            name: intellium-config
+        
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+      
+      volumes:
+      - name: logs
+        emptyDir: {}
+
+---
+# Backend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: intellium
+  labels:
+    app: backend
+    component: api
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: backend

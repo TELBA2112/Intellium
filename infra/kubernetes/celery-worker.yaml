@@ -1,0 +1,98 @@
+# Celery Worker Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  namespace: intellium
+  labels:
+    app: celery-worker
+    component: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: celery-worker
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+        component: worker
+    spec:
+      containers:
+      - name: celery-worker
+        image: intellium/backend:latest
+        imagePullPolicy: Always
+        command: ["celery", "-A", "app.worker", "worker", "--loglevel=info", "--concurrency=4"]
+        env:
+        # Database connection
+        - name: DATABASE_USER
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: DATABASE_USER
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: DATABASE_PASSWORD
+        - name: DATABASE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: intellium-config
+              key: DATABASE_HOST
+        - name: DATABASE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: intellium-config
+              key: DATABASE_PORT
+        - name: DATABASE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: intellium-config
+              key: DATABASE_NAME
+        - name: DATABASE_URL
+          value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/$(DATABASE_NAME)"
+        
+        # Redis connection
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: intellium-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: intellium-config
+              key: REDIS_PORT
+        - name: REDIS_URL
+          value: "redis://$(REDIS_HOST):$(REDIS_PORT)/0"
+        
+        # Secrets
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: SECRET_KEY
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: MINIO_ACCESS_KEY
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: intellium-secrets
+              key: MINIO_SECRET_KEY
+        
+        # ConfigMap values
+        envFrom:
+        - configMapRef:
+            name: intellium-config
+        
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
