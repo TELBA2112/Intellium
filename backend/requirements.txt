@@ -24,7 +24,7 @@ minio==7.2.0
 
 # OCR
 pytesseract==0.3.10
-Pillow==10.1.0
+Pillow==9.5.0
 
 # Payments
 stripe==7.4.0
