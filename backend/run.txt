@@ -1,3 +1,0 @@
-cd ~/Projeckt/Intellium/backend
-source venv/bin/activate
-uvicorn main:app --reload
